@@ -1,0 +1,15 @@
+menu "SZPI car hardware"
+config RC_MOTOR_ENABLE
+    bool "Enable external PCA9685 + TB6612 motor adapter"
+    default y
+config RC_MOTOR_INVERT_LEFT
+    bool "Invert left motor polarity"
+    default n
+config RC_MOTOR_INVERT_RIGHT
+    bool "Invert right motor polarity"
+    default n
+config RC_CAMERA_JPEG_QUALITY
+    int "Software JPEG quality (GC0308 is not a JPEG sensor)"
+    range 20 90
+    default 55
+endmenu

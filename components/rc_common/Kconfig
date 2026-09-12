@@ -1,0 +1,20 @@
+menu "Camera car link"
+config RC_WIFI_SSID
+    string "Car access point SSID"
+    default "SZPI-P4-Car"
+config RC_WIFI_PASSWORD
+    string "Car access point password (8-63 characters)"
+    default "CarVideo2026"
+config RC_SPEAKER_VOLUME
+    int "Initial speaker volume"
+    range 0 65
+    default 40
+config RC_MIC_GAIN_DB
+    int "Microphone gain in dB"
+    range 0 36
+    default 24
+config RC_REF_GAIN_DB
+    int "S3 analog echo reference gain in dB"
+    range 0 24
+    default 0
+endmenu
