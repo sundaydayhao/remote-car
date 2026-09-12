@@ -93,3 +93,10 @@ void rc_limit_pcm(int16_t *pcm, size_t samples) {
         pcm[i] = (int16_t)v;
     }
 }
+size_t rc_audio_pack(rc_audio_packer_t *packer, const int16_t *pcm, size_t samples) {
+    size_t count = RC_AUDIO_SAMPLES - packer->used;
+    if (count > samples) count = samples;
+    if (count) memcpy(packer->pcm + packer->used, pcm, count * sizeof(*pcm));
+    packer->used += count;
+    return count;
+}

@@ -46,7 +46,17 @@ static void update(lv_timer_t *timer) {
     if (fresh) lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
 }
 esp_err_t remote_ui_start(void) {
-    lv_display_t *display = bsp_display_start();
+    // The BSP default keeps a 100 KiB drawing buffer in internal RAM.
+    // P4 can draw from DMA-capable PSRAM; preserve internal RAM for AEC and tasks.
+    bsp_display_cfg_t cfg = {
+        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+        .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
+        .double_buffer = false,
+        .hw_cfg = {.hdmi_resolution = BSP_HDMI_RES_NONE,
+            .dsi_bus = {.phy_clk_src = 0, .lane_bit_rate_mbps = BSP_LCD_MIPI_DSI_LANE_BITRATE_MBPS}},
+        .flags = {.buff_dma = true, .buff_spiram = true, .sw_rotate = false}
+    };
+    lv_display_t *display = bsp_display_start_with_config(&cfg);
     if (!display) return ESP_FAIL;
     frame.header.magic = LV_IMAGE_HEADER_MAGIC; frame.header.cf = LV_COLOR_FORMAT_RGB565;
     frame.header.w = 320; frame.header.h = 240; frame.header.stride = 640;

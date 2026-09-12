@@ -60,6 +60,36 @@ int main(void) {
     int16_t limits[] = {-32768, -24001, -24000, -1, 0, 1, 24000, 24001, 32767};
     rc_limit_pcm(limits, 9);
     CHECK(limits[0] == -24000 && limits[1] == -24000 && limits[3] == -1 && limits[5] == 1 && limits[8] == 24000);
-    printf("PASS: %u production-C checks (protocol, CRC, sessions, replay, watchdog, reversing, PCM)\n", checks);
+    const size_t chunks[] = {128, 160, 256, 320, 480, 512, 1024};
+    for (unsigned mode = 0; mode < sizeof(chunks) / sizeof(chunks[0]); ++mode) {
+        rc_audio_packer_t packer = {0};
+        int16_t input[1024];
+        size_t produced = 0, emitted = 0;
+        for (unsigned block = 0; block < 40; ++block) {
+            for (size_t i = 0; i < chunks[mode]; ++i) input[i] = (int16_t)((produced + i) % 20000);
+            size_t offset = 0;
+            while (offset < chunks[mode]) {
+                size_t taken = rc_audio_pack(&packer, input + offset, chunks[mode] - offset);
+                CHECK(taken > 0 && taken <= chunks[mode] - offset);
+                offset += taken;
+                if (packer.used == RC_AUDIO_SAMPLES) {
+                    for (size_t i = 0; i < RC_AUDIO_SAMPLES; ++i) CHECK(packer.pcm[i] == (int16_t)((emitted + i) % 20000));
+                    emitted += RC_AUDIO_SAMPLES; packer.used = 0;
+                }
+            }
+            produced += chunks[mode];
+            CHECK(emitted + packer.used == produced);
+        }
+        // Session reset discards a partial previous packet.
+        packer.used = 0;
+        for (size_t i = 0; i < RC_AUDIO_SAMPLES; ++i) input[i] = -1234;
+        CHECK(rc_audio_pack(&packer, input, 37) == 37);
+        packer.used = 0;
+        for (size_t i = 0; i < RC_AUDIO_SAMPLES; ++i) input[i] = 1234;
+        CHECK(rc_audio_pack(&packer, input, RC_AUDIO_SAMPLES) == RC_AUDIO_SAMPLES);
+        CHECK(rc_audio_pack(&packer, input, 1) == 0);
+        for (size_t i = 0; i < RC_AUDIO_SAMPLES; ++i) CHECK(packer.pcm[i] == 1234);
+    }
+    printf("PASS: %u production-C checks (protocol, CRC, sessions, replay, watchdog, reversing, PCM, AEC packetization)\n", checks);
     return 0;
 }

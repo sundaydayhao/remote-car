@@ -20,7 +20,7 @@
 - 控制每约 50 ms 更新；车端独立任务检查 350 ms 指令超时，超时或断线停车。CRC、会话、序号检查拒绝坏包、旧连接和重复指令。重连第一包必须停车。
 - 音频采用 16 kHz、16 bit、单声道、32 ms UDP 包，3 包容量、2 包预缓冲。丢弃迟到/旧会话数据，缺包播放静音，限制播放幅度。
 
-这些是代码与编译验证的实现范围，**尚未烧录或实测**。帧率、音视频时延、AEC 效果、实际停止距离尚无实测结果。
+已完成 **P4 单板烧录与启动验证**：显示/触摸驱动初始化、AEC 启动及持续麦克风采样正常。S3 尚未上板，双端视频/语音、帧率、时延、AEC 声学效果和实际停止距离尚未实测，详见 [VALIDATION.md](VALIDATION.md)。
 
 ## 构建
 
@@ -45,7 +45,7 @@ idf.py build
 
 P4 固件默认面向早期 P4 芯片（`ESP32P4_SELECTS_REV_LESS_V3=y`）。**PCB v1.4 不是芯片 revision**；烧录前读取芯片版本。若实际芯片是 rev3.x，需调整该选项重新构建。不要把为 rev3.x 编译的镜像直接烧到早期 P4。
 
-烧录在各自项目目录运行 `idf.py -p 实际端口 flash monitor`。先确认两个端口对应的板卡；本次没有连接、擦除或烧录设备。
+烧录在各自项目目录运行 `idf.py -p 实际端口 flash monitor`。先确认端口对应的板卡；本次 P4 为 COM28、芯片 v1.0、Flash 16 MB，该端口仅是本次识别结果。
 
 产物：`car_s3/build/szpi_camera_car.bin`、`remote_p4/build/p4_touch_remote.bin`，配套 bootloader、partition-table 与 `flash_args` 均在对应 build 目录。两个项目都使用 4 MB factory 分区，不包含 OTA。
 

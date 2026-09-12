@@ -31,6 +31,9 @@ esp_err_t rc_codec_init(const rc_codec_config_t *cfg) {
         tdm.slot_cfg.total_slot = 4;
         ESP_RETURN_ON_ERROR(i2s_channel_init_tdm_mode(rx, &tdm), TAG, "ES7210 TDM RX");
     } else ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(rx, &std), TAG, "ES8311 RX");
+    // codec_dev expects active channels before applying its sample format.
+    ESP_RETURN_ON_ERROR(i2s_channel_enable(tx), TAG, "enable TX");
+    ESP_RETURN_ON_ERROR(i2s_channel_enable(rx), TAG, "enable RX");
     audio_codec_i2s_cfg_t data_cfg = {.port = 0, .tx_handle = tx, .rx_handle = rx};
     const audio_codec_data_if_t *data = audio_codec_new_i2s_data(&data_cfg);
     audio_codec_i2c_cfg_t ctrl_cfg = {.port = 0, .addr = ES8311_CODEC_DEFAULT_ADDR, .bus_handle = cfg->bus};

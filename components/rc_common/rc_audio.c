@@ -19,6 +19,7 @@ static peer_t peer;
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 static QueueHandle_t playback_queue;
 static aec_handle_t *aec;
+static size_t aec_samples;
 static int udp = -1;
 static rc_audio_stats_t stats;
 static const char *TAG = "duplex_aec";
@@ -40,17 +41,19 @@ static void *buffer(size_t n) {
 }
 static void capture_task(void *arg) {
     (void)arg;
-    int16_t *stereo = buffer(RC_AUDIO_SAMPLES * 4), *mic = buffer(RC_AUDIO_SAMPLES * 2);
-    int16_t *ref = buffer(RC_AUDIO_SAMPLES * 2), *clean = buffer(RC_AUDIO_SAMPLES * 2);
+    int16_t *stereo = buffer(aec_samples * 4), *mic = buffer(aec_samples * 2);
+    int16_t *ref = buffer(aec_samples * 2), *clean = buffer(aec_samples * 2);
+    rc_audio_packer_t *packer = buffer(sizeof(*packer));
     uint8_t *packet = buffer(RC_AUDIO_BYTES);
-    uint32_t sequence = 0;
+    uint32_t sequence = 0, generation = ~0u;
     for (;;) {
-        if (rc_codec_read(stereo, RC_AUDIO_SAMPLES) != ESP_OK) {
+        if (rc_codec_read(stereo, aec_samples) != ESP_OK) {
+            packer->used = 0;
             portENTER_CRITICAL(&lock); ++stats.io_errors; portEXIT_CRITICAL(&lock);
             vTaskDelay(pdMS_TO_TICKS(10)); continue;
         }
         uint32_t mp = 0, rp = 0;
-        for (unsigned i = 0; i < RC_AUDIO_SAMPLES; ++i) {
+        for (size_t i = 0; i < aec_samples; ++i) {
             mic[i] = stereo[i * 2]; ref[i] = stereo[i * 2 + 1];
             if ((unsigned)abs((int)mic[i]) > mp) mp = abs((int)mic[i]);
             if ((unsigned)abs((int)ref[i]) > rp) rp = abs((int)ref[i]);
@@ -58,11 +61,18 @@ static void capture_task(void *arg) {
         // Both boards supply a sample-synchronous playback reference in the right input slot.
         // This always runs during playback AND near-end speech. No PTT, VAD gate, or raw bypass.
         aec_process(aec, mic, ref, clean);
-        rc_limit_pcm(clean, RC_AUDIO_SAMPLES);
+        rc_limit_pcm(clean, aec_samples);
         portENTER_CRITICAL(&lock); stats.mic_peak = mp; stats.ref_peak = rp; portEXIT_CRITICAL(&lock);
         peer_t p = get_peer();
-        if (p.enabled) {
-            rc_audio_encode(packet, p.session, ++sequence, clean);
+        if (generation != p.generation) { generation = p.generation; packer->used = 0; }
+        if (!p.enabled) { packer->used = 0; continue; }
+        // AEC frame size is mode-dependent; UDP always carries 512 samples.
+        size_t offset = 0;
+        while (offset < aec_samples) {
+            offset += rc_audio_pack(packer, clean + offset, aec_samples - offset);
+            if (packer->used != RC_AUDIO_SAMPLES) continue;
+            rc_audio_encode(packet, p.session, ++sequence, packer->pcm);
+            packer->used = 0;
             struct sockaddr_in dst = {.sin_family = AF_INET, .sin_port = htons(RC_AUDIO_PORT), .sin_addr.s_addr = p.ip};
             int n = sendto(udp, packet, RC_AUDIO_BYTES, 0, (void *)&dst, sizeof(dst));
             portENTER_CRITICAL(&lock);
@@ -133,7 +143,14 @@ static void playback_task(void *arg) {
 esp_err_t rc_audio_start(void) {
     aec = aec_create(16000, 4, 1, AEC_MODE_VOIP_HIGH_PERF);
     if (!aec) return ESP_ERR_NO_MEM;
-    if (aec_get_chunksize(aec) != RC_AUDIO_SAMPLES) { aec_destroy(aec); aec = NULL; return ESP_ERR_NOT_SUPPORTED; }
+    int chunk = aec_get_chunksize(aec);
+    ESP_LOGI(TAG, "AEC frame: %d samples; UDP packet: %d samples", chunk, RC_AUDIO_SAMPLES);
+    // Keep one capture below the codec's 100 ms read deadline.
+    if (chunk <= 0 || chunk > 1024) {
+        ESP_LOGE(TAG, "Unsupported AEC frame length: %d", chunk);
+        aec_destroy(aec); aec = NULL; return ESP_ERR_NOT_SUPPORTED;
+    }
+    aec_samples = (size_t)chunk;
     playback_queue = xQueueCreate(3, sizeof(audio_frame_t));
     if (!playback_queue) return ESP_ERR_NO_MEM;
     udp = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -144,6 +161,6 @@ esp_err_t rc_audio_start(void) {
         xTaskCreate(receive_task, "audio_rx", 4096, NULL, 7, NULL) != pdPASS ||
         xTaskCreate(capture_task, "audio_aec", 8192, NULL, 7, NULL) != pdPASS) return ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&lock); stats.ready = true; portEXIT_CRITICAL(&lock);
-    ESP_LOGI(TAG, "Full duplex: 16 kHz, 512 samples, VOIP AEC, hardware reference");
+    ESP_LOGI(TAG, "Full duplex: 16 kHz, %u-sample AEC, 512-sample UDP, hardware reference", (unsigned)aec_samples);
     return ESP_OK;
 }

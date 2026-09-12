@@ -37,3 +37,8 @@ void rc_audio_encode(uint8_t out[RC_AUDIO_BYTES], uint32_t session, uint32_t seq
 bool rc_audio_decode(const uint8_t *p, size_t len, uint32_t session, uint32_t *seq, int16_t *pcm);
 void rc_mix(unsigned direction, unsigned speed, int16_t *left, int16_t *right);
 void rc_limit_pcm(int16_t *pcm, size_t samples);
+
+typedef struct { int16_t pcm[RC_AUDIO_SAMPLES]; size_t used; } rc_audio_packer_t;
+// Append up to one packet. Caller emits a full packet, then clears used.
+// Clear used on disconnect/session change to discard incomplete old audio.
+size_t rc_audio_pack(rc_audio_packer_t *packer, const int16_t *pcm, size_t samples);

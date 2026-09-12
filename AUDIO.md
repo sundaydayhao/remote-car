@@ -12,7 +12,7 @@
 本地麦克风 → ADC → [本地麦克风 + 同步播放参考] → VOIP AEC → 发送给对方
 ```
 
-AEC 处理的是“本地麦克风中本地喇叭的声音”。如果只在一端消回声，另一端的喇叭回录仍可能沿网络反复循环。这里两端均运行 `aec_create(16000, 4, 1, AEC_MODE_VOIP_HIGH_PERF)`、`aec_process()`，每次 512 样本，实际启动时检查库返回的帧长。
+AEC 处理的是“本地麦克风中本地喇叭的声音”。如果只在一端消回声，另一端的喇叭回录仍可能沿网络反复循环。这里两端均运行 `aec_create(16000, 4, 1, AEC_MODE_VOIP_HIGH_PERF)`、`aec_process()`，按 `aec_get_chunksize()` 返回的实际帧长采集和处理。P4 实机返回 **256 样本（16 ms）**；处理后的连续 PCM 再组装成 **512 样本（32 ms）** 网络包。AEC 帧长与网络包长独立，不能用头文件中的 32 ms 宏替代运行时查询。
 
 AEC 初始化失败不会退回未经处理的麦克风直传。音频就绪状态会显示不可用；行走控制和视频可以独立工作。
 
@@ -55,5 +55,9 @@ RX 为 TDM 4×16 bit；TX 是标准 I²S 16 bit 数据、32 bit 时隙，二者�
 控制 TCP/5000；音频双向 UDP/5001。单包 20 字节头 + 1024 字节 PCM，固定小端，总长 1044 字节，低于常见 1500 MTU。每方向音频有效码率 256 kbit/s，加协议头约 261 kbit/s，不包含 Wi-Fi/IP 开销。视频另走 HTTP/80，不在音频任务里解码。
 
 UDP 对端由当前控制连接的 IP 和随机会话 ID 绑定；数据经过 CRC 和序号检查。CRC 只检测损坏，不提供密码学认证；当前访问保护依赖本地 WPA2 AP 密码，未实现互联网访问和端到端加密。
+
+采集失败、断线或会话变化时丢弃尚未凑满一包的 PCM；AEC 仍持续运行。主机测试直接调用生产打包代码，检查多种帧长下的样本顺序、数量和会话切换，不包含闭源 AEC 的声学效果。
+
+P4 的 LVGL 绘制缓冲使用 DMA PSRAM，关闭不需要的软件旋转，避免 BSP 默认缓冲占用内部 RAM。普通 `malloc` 的优先内部内存阈值设为 1024 字节，并预留 64 KiB 内部堆给 DMA/任务栈；较大普通缓冲优先使用 PSRAM。启动日志记录 AEC 前后与所有任务创建后的内部空闲堆、最大连续块和 PSRAM 空闲量，方便定位总内存充足但任务栈无法分配的问题。
 
 来源：[ESP-SR 2.2.2](https://components.espressif.com/components/espressif/esp-sr/versions/2.2.2/readme)、[ESP-SR AEC 文档](https://docs.espressif.com/projects/esp-sr/en/latest/esp32/acoustic_echo_cancellation/README.html)、[立创板载回采说明](https://wiki.lckfb.com/zh-hans/szpi-esp32s3/beginner/introduction.html)。声道配置参考同类 ES7210/ES8311 的[开源板级实现](https://github.com/78/xiaozhi-esp32/blob/main/main/audio/codecs/box_audio_codec.cc)，具体 API 以本工程锁定的 esp_codec_dev 源码为准。
